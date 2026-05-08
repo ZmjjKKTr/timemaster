@@ -658,6 +658,32 @@ body {
 }
 .color-options .color-dot.selected { border-color: var(--text); }
 
+
+/* 日期导航栏 */
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+/* 当前活动卡片 */
+.now-card {
+  border-left: 3px solid var(--danger);
+  animation: pulse-border 2s infinite;
+}
+@keyframes pulse-border {
+  0%, 100% { border-left-color: var(--danger); }
+  50% { border-left-color: var(--danger-hover); }
+}
+
+/* 当前时间块高亮 */
+.timeline-block.active-now {
+  box-shadow: inset 0 0 0 2px var(--danger), 0 2px 12px rgba(255,59,48,0.25) !important;
+  z-index: 15 !important;
+}
+
 /* ============================================================
    响应式 —— 移动端
    ============================================================ */
@@ -690,21 +716,39 @@ body {
 
   <!-- ========== 顶部标签导航 ========== -->
   <nav class="tab-nav" id="tabNav">
-    <button class="tab-btn active" data-tab="map">📊 今日地图</button>
+    <button class="tab-btn active" data-tab="map">📊 时间地图</button>
     <button class="tab-btn" data-tab="courses">📚 课表</button>
     <button class="tab-btn" data-tab="habits">⚙️ 习惯</button>
     <button class="tab-btn" data-tab="tasks">📋 任务</button>
   </nav>
 
   <!-- ================================================================
-       Tab 1 —— 今日时间地图
+       Tab 1 —— 时间地图
        ================================================================ -->
   <section class="tab-panel active" id="panel-map">
-    <!-- 日期 & 统计 -->
-    <div class="date-header">
-      <span class="date-text" id="mapDate">--</span>
-      <span class="weekday-text" id="mapWeekday">--</span>
+    <!-- 日期导航栏 -->
+    <div class="date-nav">
+      <button class="btn btn-icon" id="btnPrevDay" title="前一天">◀</button>
+      <input type="date" id="mapDateInput" style="width:148px;text-align:center;font-size:15px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-xs);padding:6px 8px;font-family:var(--font);color:var(--text);background:var(--card-bg);">
+      <button class="btn btn-icon" id="btnNextDay" title="后一天">▶</button>
+      <button class="btn btn-outline btn-sm" id="btnToday">今天</button>
+      <span style="font-size:12px;color:var(--text-secondary);margin-left:4px;" id="mapWeekdayLabel"></span>
     </div>
+
+    <!-- 当前活动指示（仅今天显示） -->
+    <div class="card now-card" id="nowCard" style="display:none;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:28px;">📍</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:11px;color:var(--text-secondary);">现在正在</div>
+          <div id="nowActivity" style="font-size:16px;font-weight:600;"></div>
+          <div id="nowTime" style="font-size:11px;color:var(--text-tertiary);"></div>
+        </div>
+        <div id="nowRemain" style="font-size:13px;font-weight:600;color:var(--primary);white-space:nowrap;"></div>
+      </div>
+    </div>
+
+    <!-- 统计卡片 -->
     <div class="stats-row" id="statsRow"></div>
 
     <!-- 时间轴 -->
@@ -2035,18 +2079,78 @@ function $$(sel, parent) { return Array.from((parent || document).querySelectorA
 /** 星期数字 → 中文名 */
 function wdName(n) { return WEEKDAY_NAMES[n] || ''; }
 
-// ---- 今日地图渲染 ----
+// ---- 时间地图渲染 ----
 
-async function renderTimeMap() {
+/** 地图日期状态：当前查看的日期（YYYY-MM-DD），可通过参数覆盖 */
+let mapViewDate = new Date().toISOString().slice(0, 10);
+
+/**
+ * 渲染"现在正在"活动卡片。
+ * @param {boolean} isToday - 是否今天
+ * @param {Array} blocks - 时间块列表（可能为空）
+ * @param {Object} settings - 用户设置
+ */
+function renderNowCard(isToday, blocks, settings) {
+  if (!isToday) return;
+  $('#nowCard').style.display = '';
   const now = new Date();
-  const weekday = now.getDay();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = timeToMinutes(settings.studyStart);
+  const endMin = timeToMinutes(settings.studyEnd);
+  const showNow = nowMin >= startMin && nowMin <= endMin;
+
+  if (showNow) {
+    // 在时间范围内：找到当前所在块
+    const nowBlock = blocks.find(b => nowMin >= b.startMin && nowMin < b.endMin);
+    if (nowBlock) {
+      const remainMin = nowBlock.endMin - nowMin;
+      const remainText = remainMin <= 0 ? '已结束' : remainMin >= 60
+        ? Math.floor(remainMin / 60) + '小时' + (remainMin % 60 ? (remainMin % 60) + '分' : '') + '后结束'
+        : remainMin + '分钟后结束';
+      $('#nowActivity').textContent = nowBlock.data.label || '自由时间';
+      $('#nowTime').textContent = nowBlock.start + ' - ' + nowBlock.end;
+      $('#nowRemain').textContent = remainText;
+    } else {
+      $('#nowActivity').textContent = '自由时间';
+      $('#nowTime').textContent = '';
+      $('#nowRemain').textContent = '';
+    }
+  } else if (nowMin < startMin) {
+    $('#nowActivity').textContent = '未到学习时间';
+    $('#nowTime').textContent = '学习 ' + settings.studyStart + ' 开始';
+    $('#nowRemain').textContent = Math.ceil(startMin - nowMin) + '分后开始';
+  } else if (nowMin > endMin) {
+    $('#nowActivity').textContent = '学习时间已结束';
+    $('#nowTime').textContent = settings.studyEnd + ' 结束';
+    $('#nowRemain').textContent = '';
+  } else {
+    $('#nowActivity').textContent = '自由时间';
+    $('#nowTime').textContent = '';
+    $('#nowRemain').textContent = '';
+  }
+}
+
+/**
+ * 渲染时间地图。
+ * @param {string} [dateStr] - 要查看的日期 YYYY-MM-DD，缺省使用 mapViewDate
+ */
+async function renderTimeMap(dateStr) {
+  const date = dateStr || mapViewDate;
+  mapViewDate = date;
+  const d = new Date(date + 'T00:00:00');
+  const weekday = d.getDay();
   const wd = weekday === 0 ? 7 : weekday;
-  const dateStr = now.toISOString().slice(0, 10);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isToday = (date === todayStr);
 
-  $('#mapDate').textContent = dateStr;
-  $('#mapWeekday').textContent = '星期' + '日一二三四五六'[weekday];
+  // 更新日期导航 UI
+  $('#mapDateInput').value = date;
+  $('#mapWeekdayLabel').textContent = '星期' + '日一二三四五六'[weekday];
+  $('#btnToday').style.display = isToday ? 'none' : '';
+  $('#nowCard').style.display = 'none';
 
-  const { blocks, stats, totalMinutes } = await generateTimeMap(wd, dateStr);
+  const { blocks, stats, totalMinutes } = await generateTimeMap(wd, date);
+  const settings = await getSettings();
 
   // 统计卡片
   $('#statsRow').innerHTML = `
@@ -2056,11 +2160,15 @@ async function renderTimeMap() {
     <div class="stat-card stat-task"><div class="stat-value">${stats.task}h</div><div class="stat-label">📋 任务&活动</div></div>
   `;
 
+  // 当前活动卡片（无论是否有 blocks 都渲染）
+  renderNowCard(isToday, blocks, settings);
+
   // 时间轴
   const container = $('#timelineContainer');
+  const dayLabel = isToday ? '今天' : date;
   if (blocks.length === 0) {
     container.innerHTML = `<div class="empty-state" style="padding:60px 20px;">
-      <p style="margin-bottom:16px;">今天没有安排</p>
+      <p style="margin-bottom:16px;">${dayLabel}没有安排</p>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm goto-tab" data-goto="habits">设置习惯</button>
         <button class="btn btn-outline btn-sm goto-tab" data-goto="courses">管理课表</button>
@@ -2071,10 +2179,14 @@ async function renderTimeMap() {
   }
 
   const timelineHeight = 520; // px
-  const settings = await getSettings();
   const startMin = timeToMinutes(settings.studyStart);
   const endMin   = timeToMinutes(settings.studyEnd);
   const totalMin = endMin - startMin;
+
+  // 计算当前时间（仅今天有效）
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const showNow = isToday && nowMin >= startMin && nowMin <= endMin;
 
   // 时间刻度标签（每小时一个）
   let labelHTML = '';
@@ -2085,13 +2197,17 @@ async function renderTimeMap() {
 
   // 时间块
   let blockHTML = '';
-  for (const b of blocks) {
+  let nowBlockIdx = -1;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
     const top    = ((b.startMin - startMin) / totalMin) * timelineHeight;
     const height = Math.max(((b.endMin - b.startMin) / totalMin) * timelineHeight, 20);
     const detail = b.data.detail || '';
     const label  = b.data.label || '';
+    const isNowBlock = showNow && nowMin >= b.startMin && nowMin < b.endMin;
+    if (isNowBlock) nowBlockIdx = i;
     blockHTML += `
-      <div class="timeline-block type-${b.type}"
+      <div class="timeline-block type-${b.type}${isNowBlock ? ' active-now' : ''}"
            style="top:${top}px; height:${height}px;"
            title="${label} ${b.start}-${b.end}">
         <span class="block-time">${b.start}-${b.end}</span>
@@ -2100,11 +2216,28 @@ async function renderTimeMap() {
       </div>`;
   }
 
+  // 现在时间线（仅今天且在时间范围内）
+  let nowLineHTML = '';
+  if (showNow) {
+    const nowTop = ((nowMin - startMin) / totalMin) * timelineHeight;
+    nowLineHTML = `<div class="timeline-now" style="top:${nowTop}px;"></div>`;
+  }
+
   container.innerHTML = `
     <div class="timeline-body" style="height:${timelineHeight}px;">
       <div class="timeline-labels" style="height:${timelineHeight}px;">${labelHTML}</div>
-      <div class="timeline-blocks" style="height:${timelineHeight}px;">${blockHTML}</div>
+      <div class="timeline-blocks" style="height:${timelineHeight}px;">${blockHTML}${nowLineHTML}</div>
     </div>`;
+
+  // 自动滚动到今天的时间位置
+  if (showNow) {
+    setTimeout(() => {
+      const nowLine = container.querySelector('.timeline-now');
+      if (nowLine) {
+        nowLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 200);
+  }
 }
 
 /** HTML 转义防 XSS */
@@ -2246,13 +2379,13 @@ function renderColorOptions(containerId, selectedColor, onChangeCallback) {
          style="background:${c}" data-color="${c}"></div>
   `).join('');
 
-  container.addEventListener('click', (e) => {
+  container.onclick = (e) => {
     const dot = e.target.closest('.color-dot');
     if (!dot) return;
     $$('.color-dot', container).forEach(d => d.classList.remove('selected'));
     dot.classList.add('selected');
     if (onChangeCallback) onChangeCallback(dot.dataset.color);
-  });
+  };
 }
 
 function renderWeekdayPicker(containerId, selectedWeekdays) {
@@ -2261,11 +2394,11 @@ function renderWeekdayPicker(containerId, selectedWeekdays) {
     <button class="wd-chip${selectedWeekdays.includes(i+1) ? ' selected' : ''}" data-wd="${i+1}">${name}</button>
   `).join('');
 
-  container.addEventListener('click', (e) => {
+  container.onclick = (e) => {
     const chip = e.target.closest('.wd-chip');
     if (!chip) return;
     chip.classList.toggle('selected');
-  });
+  };
 }
 
 function getSelectedWeekdays(containerId) {
@@ -2464,8 +2597,8 @@ async function switchTab(tabName) {
   const bottomItem = $('#bottomNav').querySelector('[data-tab="' + tabName + '"]');
   if (bottomItem) bottomItem.classList.add('active');
 
-  // 切换时重新渲染对应面板
-  if (tabName === 'map') await renderTimeMap();
+  // 切换时重新渲染对应面板（地图使用当前存储的日期）
+  if (tabName === 'map') await renderTimeMap(mapViewDate);
   if (tabName === 'courses') await renderCourseList();
   if (tabName === 'habits') { await renderPeriodMapping(); await renderActivityList(); }
   if (tabName === 'tasks') await renderTaskList();
@@ -2882,13 +3015,58 @@ document.addEventListener('keydown', (e) => {
    ================================================================== */
 
 async function init() {
+  // 初始化日期选择器
+  mapViewDate = new Date().toISOString().slice(0, 10);
+  $('#mapDateInput').value = mapViewDate;
+
   // 初始渲染
   switchTab('map');
 
-  // 自动刷新今日地图（每分钟一次）
+  // ---- 日期导航事件 ----
+
+  $('#btnPrevDay').addEventListener('click', () => {
+    const d = new Date(mapViewDate + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    renderTimeMap(d.toISOString().slice(0, 10));
+  });
+
+  $('#btnNextDay').addEventListener('click', () => {
+    const d = new Date(mapViewDate + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    renderTimeMap(d.toISOString().slice(0, 10));
+  });
+
+  $('#btnToday').addEventListener('click', () => {
+    renderTimeMap(new Date().toISOString().slice(0, 10));
+  });
+
+  $('#mapDateInput').addEventListener('change', (e) => {
+    if (e.target.value) renderTimeMap(e.target.value);
+  });
+
+  // 键盘左右箭头翻日期
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    const mapPanel = $('#panel-map');
+    if (!mapPanel.classList.contains('active')) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const d = new Date(mapViewDate + 'T00:00:00');
+      d.setDate(d.getDate() - 1);
+      renderTimeMap(d.toISOString().slice(0, 10));
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const d = new Date(mapViewDate + 'T00:00:00');
+      d.setDate(d.getDate() + 1);
+      renderTimeMap(d.toISOString().slice(0, 10));
+    }
+  });
+
+  // 自动刷新今日地图（每分钟一次，仅在查看今天时刷新）
   setInterval(() => {
     const mapPanel = $('#panel-map');
-    if (mapPanel.classList.contains('active')) {
+    if (mapPanel.classList.contains('active') && mapViewDate === new Date().toISOString().slice(0, 10)) {
       renderTimeMap();
     }
   }, 60000);
