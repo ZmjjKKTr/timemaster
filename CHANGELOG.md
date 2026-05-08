@@ -25,6 +25,12 @@
 - 自动刷新定时器仅在查看今天时触发，浏览历史/未来日期时不刷新。
 - 今日活动卡片在即使当天无课程/任务时仍能显示「自由时间」「未到学习时间」等状态。
 
+### 部署
+- 已部署至 GitHub Pages：`https://zmjjkktr.github.io/timemaster/`
+- 代码托管：`https://github.com/ZmjjKKTr/timemaster`
+- 更新方式：本地修改后 `git push`，GitHub Pages 1-2 分钟内自动生效
+- 数据存储：浏览器 localStorage，换设备/浏览器数据不互通
+
 ---
 ## [v0.2.0] — 2026-05-08
 
